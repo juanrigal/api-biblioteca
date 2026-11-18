@@ -193,4 +193,4 @@ def devolver_libro(id: int):
         raise HTTPException(status_code=409, detail="El libro ya está disponible")
     libro["disponible"] = True
     guardar()
-    return libro
+    return libro    
