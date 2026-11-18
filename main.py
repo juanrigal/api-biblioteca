@@ -5,5 +5,9 @@ app = FastAPI()
 
 @app.get("/")
 def raiz():
-    return {"mensaje":"hola"}
+    return {"mensaje": "API de la biblioteca"}
+
+@app.get("/libros")
+def listar_libros():
+    return []
 
