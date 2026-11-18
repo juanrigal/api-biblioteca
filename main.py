@@ -1,8 +1,11 @@
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -20,11 +23,16 @@ def cargar():
     try:
         with open(ARCHIVO, encoding="utf-8") as f:
             datos = json.load(f)
-        if not isinstance(datos, list):
-            return []
-        return datos
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        logger.info("No hay archivo de datos, se arranca vacío")
         return []
+    except (OSError, ValueError):
+        logger.warning("Archivo de datos dañado, se arranca vacío")
+        return []
+    if not isinstance(datos, list):
+        logger.warning("El archivo no contiene una lista, se arranca vacío")
+        return []
+    return datos
 
 
 libros = cargar()
@@ -68,6 +76,7 @@ def existe_duplicado(titulo: str, autor: str) -> bool:
 
 @app.get("/")
 def raiz():
+    """Mensaje de bienvenida de la API."""
     return {"mensaje": "API de la biblioteca"}
 
 
@@ -78,6 +87,7 @@ def listar_libros(
     desde: int = Query(default=0, ge=0),
     limite: int = Query(default=100, ge=0),
 ):
+    """Lista libros con filtros por autor y disponibilidad, y paginación."""
     resultado = libros
     if autor is not None:
         resultado = [
@@ -92,8 +102,31 @@ def listar_libros(
     return resultado[desde:desde + limite]
 
 
+@app.get("/libros/buscar", response_model=list[Libro])
+def buscar_libros(texto: str):
+    """Busca libros cuyo título o autor contenga el texto."""
+    texto = texto.lower()
+    return [
+        libro for libro in libros
+        if texto in libro["titulo"].lower() or texto in libro["autor"].lower()
+    ]
+
+
+@app.get("/libros/estadisticas")
+def estadisticas():
+    """Devuelve el total de libros, los disponibles y los prestados."""
+    total = len(libros)
+    disponibles = sum(1 for libro in libros if libro["disponible"])
+    return {
+        "total": total,
+        "disponibles": disponibles,
+        "prestados": total - disponibles,
+    }
+
+
 @app.post("/libros", status_code=201, response_model=Libro)
 def crear_libro(libro: LibroEntrada):
+    """Crea un libro nuevo; 409 si ya existe el mismo título y autor."""
     global siguiente_id
     if existe_duplicado(libro.titulo, libro.autor):
         raise HTTPException(status_code=409, detail="El libro ya existe")
@@ -101,16 +134,19 @@ def crear_libro(libro: LibroEntrada):
     libros.append(nuevo)
     siguiente_id += 1
     guardar()
+    logger.info("Libro creado con id %s", nuevo["id"])
     return nuevo
 
 
 @app.get("/libros/{id}", response_model=Libro)
 def obtener_libro(id: int):
+    """Devuelve un libro por su id."""
     return buscar_libro(id)
 
 
 @app.put("/libros/{id}", response_model=Libro)
 def reemplazar_libro(id: int, datos: LibroEntrada):
+    """Reemplaza todos los campos de un libro."""
     libro = buscar_libro(id)
     libro.update(datos.model_dump())
     guardar()
@@ -119,6 +155,7 @@ def reemplazar_libro(id: int, datos: LibroEntrada):
 
 @app.patch("/libros/{id}", response_model=Libro)
 def actualizar_libro(id: int, datos: LibroParcial):
+    """Actualiza solo los campos enviados de un libro."""
     libro = buscar_libro(id)
     cambios = datos.model_dump(exclude_unset=True)
     if None in cambios.values():
@@ -130,6 +167,30 @@ def actualizar_libro(id: int, datos: LibroParcial):
 
 @app.delete("/libros/{id}", status_code=204)
 def borrar_libro(id: int):
+    """Borra un libro por su id."""
     libro = buscar_libro(id)
     libros.remove(libro)
     guardar()
+    logger.info("Libro borrado con id %s", id)
+
+
+@app.post("/libros/{id}/prestar", response_model=Libro)
+def prestar_libro(id: int):
+    """Marca un libro como prestado; 409 si ya lo estaba."""
+    libro = buscar_libro(id)
+    if not libro["disponible"]:
+        raise HTTPException(status_code=409, detail="El libro ya está prestado")
+    libro["disponible"] = False
+    guardar()
+    return libro
+
+
+@app.post("/libros/{id}/devolver", response_model=Libro)
+def devolver_libro(id: int):
+    """Marca un libro como disponible; 409 si ya lo estaba."""
+    libro = buscar_libro(id)
+    if libro["disponible"]:
+        raise HTTPException(status_code=409, detail="El libro ya está disponible")
+    libro["disponible"] = True
+    guardar()
+    return libro
