@@ -43,8 +43,24 @@ def raiz():
 
 
 @app.get("/libros", response_model=list[Libro])
-def listar_libros():
-    return libros
+def listar_libros(
+    autor: str | None = None,
+    disponible: bool | None = None,
+    desde: int = Query(default=0, ge=0),
+    limite: int = Query(default=100, ge=0),
+):
+    resultado = libros
+    if autor is not None:
+        resultado = [
+            libro for libro in resultado
+            if libro["autor"].lower() == autor.lower()
+        ]
+    if disponible is not None:
+        resultado = [
+            libro for libro in resultado
+            if libro["disponible"] == disponible
+        ]
+    return resultado[desde:desde + limite]
 
 
 @app.post("/libros", status_code=201, response_model=Libro)
