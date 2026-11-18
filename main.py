@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field   
 
 app = FastAPI()
@@ -36,6 +36,15 @@ def buscar_libro(id: int):
             return libro
     raise HTTPException(status_code=404, detail="Libro no encontrado")
 
+def existe_duplicado(titulo: str, autor: str) -> bool:
+    for libro in libros:
+        if (
+            libro["titulo"].lower() == titulo.lower()
+            and libro["autor"].lower() == autor.lower()
+        ):
+            return True
+    return False
+
 
 @app.get("/")
 def raiz():
@@ -66,6 +75,8 @@ def listar_libros(
 @app.post("/libros", status_code=201, response_model=Libro)
 def crear_libro(libro: LibroEntrada):
     global siguiente_id
+    if existe_duplicado(libro.titulo, libro.autor):
+        raise HTTPException(status_code=409, detail="El libro ya existe")
     nuevo = {"id": siguiente_id, **libro.model_dump()}
     libros.append(nuevo)
     siguiente_id += 1
