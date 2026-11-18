@@ -1,30 +1,49 @@
+import json
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field   
+from pydantic import BaseModel, Field
 
 app = FastAPI()
 
-libros = []
-siguiente_id = 1
+CARPETA_DATOS = Path(__file__).parent / "datos"
+ARCHIVO = CARPETA_DATOS / "libros.json"
+
+
+def guardar():
+    CARPETA_DATOS.mkdir(exist_ok=True)
+    with open(ARCHIVO, "w", encoding="utf-8") as f:
+        json.dump(libros, f, ensure_ascii=False, indent=2)
+
+
+def cargar():
+    try:
+        with open(ARCHIVO, encoding="utf-8") as f:
+            datos = json.load(f)
+        if not isinstance(datos, list):
+            return []
+        return datos
+    except (OSError, ValueError):
+        return []
+
+
+libros = cargar()
+siguiente_id = max((libro["id"] for libro in libros), default=0) + 1
+
 
 class LibroEntrada(BaseModel):
     titulo: str = Field(min_length=3, max_length=100)
     autor: str = Field(min_length=3, max_length=60)
-    anio: int = Field(ge=1000, le=2100) 
+    anio: int = Field(ge=1000, le=2100)
     disponible: bool = True
 
-
-
-class LibroEntrada(BaseModel):
-    titulo: str
-    autor: str
-    anio: int
-    disponible: bool = True
 
 class LibroParcial(BaseModel):
     titulo: str | None = Field(default=None, min_length=3, max_length=100)
     autor: str | None = Field(default=None, min_length=3, max_length=60)
     anio: int | None = Field(default=None, ge=1000, le=2100)
     disponible: bool | None = None
+
 
 class Libro(LibroEntrada):
     id: int
@@ -35,6 +54,7 @@ def buscar_libro(id: int):
         if libro["id"] == id:
             return libro
     raise HTTPException(status_code=404, detail="Libro no encontrado")
+
 
 def existe_duplicado(titulo: str, autor: str) -> bool:
     for libro in libros:
@@ -80,6 +100,7 @@ def crear_libro(libro: LibroEntrada):
     nuevo = {"id": siguiente_id, **libro.model_dump()}
     libros.append(nuevo)
     siguiente_id += 1
+    guardar()
     return nuevo
 
 
@@ -87,11 +108,14 @@ def crear_libro(libro: LibroEntrada):
 def obtener_libro(id: int):
     return buscar_libro(id)
 
-@app.put("/libros/{id}", responde_model=Libro)
+
+@app.put("/libros/{id}", response_model=Libro)
 def reemplazar_libro(id: int, datos: LibroEntrada):
     libro = buscar_libro(id)
     libro.update(datos.model_dump())
+    guardar()
     return libro
+
 
 @app.patch("/libros/{id}", response_model=Libro)
 def actualizar_libro(id: int, datos: LibroParcial):
@@ -100,6 +124,7 @@ def actualizar_libro(id: int, datos: LibroParcial):
     if None in cambios.values():
         raise HTTPException(status_code=422, detail="Los campos no pueden ser null")
     libro.update(cambios)
+    guardar()
     return libro
 
 
@@ -107,3 +132,4 @@ def actualizar_libro(id: int, datos: LibroParcial):
 def borrar_libro(id: int):
     libro = buscar_libro(id)
     libros.remove(libro)
+    guardar()
